@@ -1,72 +1,34 @@
 #!/usr/bin/env bash
-#
-# This script audits the DNS records for specific subdomains using 'dig' and 'awk'.
-#
-# DNS Configuration Requirements (External Step - You MUST configure this in your domain zone):
-#
-# Server Name  | Subdomain | Record Type | Destination IP
-# ---------------------------------------------------------------------
-# 6615-lb-01   | www       | A           | 44.211.210.132
-# 6615-lb-01   | lb-01     | A           | 44.211.210.132
-# 6615-web-01  | web-01    | A           | 18.205.161.238
-# 6615-web-02  | web-02    | A           | 52.90.56.75
-#
+# Display information about subdomains
 
-set -e
-
-# --- Bash Function to Audit Subdomain ---
-# $1: subdomain prefix (e.g., www, lb-01)
-# $2: domain (e.g., holberton.online)
-audit_subdomain () {
-    # Subdomain prefix
-    local SUB_PREFIX="$1"
-    # Full domain query
-    local SUBDOMAIN_FULL="${SUB_PREFIX}.$2"
+# Function to audit a subdomain
+audit_subdomain() {
+    local domain=$1
+    local subdomain=$2
+    local full_domain="${subdomain}.${domain}"
     
-    # Use 'dig +noall +answer' to get a clean output line containing:
-    # FQDN TTL RECORD_TYPE DESTINATION
-    # Then use awk to print the RECORD_TYPE and DESTINATION (fields 4 and 5).
-    # Ignore SC2086 for this specific use case.
-    DIG_OUTPUT=$(dig +noall +answer "${SUBDOMAIN_FULL}" | awk '
-    {
-        # Ensure the line is long enough to contain the A record details
-        if (NF >= 5) {
-            # $4 is Record Type (e.g., A)
-            # $5 is Destination (e.g., IP Address)
-            print $4, $5
-        }
-    }')
-
-    # Extract the type and destination from the awk output
-    local RECORD_TYPE=$(echo "$DIG_OUTPUT" | awk '{print $1}')
-    local DESTINATION=$(echo "$DIG_OUTPUT" | awk '{print $2}')
-
-    # Output the result in the required format
-    if [ -n "$DESTINATION" ]; then
-        echo "The subdomain ${SUB_PREFIX} is a ${RECORD_TYPE} record and points to ${DESTINATION}"
-    fi
+    # Use dig to get DNS information and extract record type and destination
+    local result=$(dig "$full_domain" | grep -A1 'ANSWER SECTION:' | tail -n1)
+    
+    # Extract record type and IP using awk
+    local record_type=$(echo "$result" | awk '{print $4}')
+    local destination=$(echo "$result" | awk '{print $5}')
+    
+    # Display the information
+    echo "The subdomain $subdomain is a $record_type record and points to $destination"
 }
 
+# Main script logic
+domain=$1
+subdomain=$2
 
-# --- Main Logic ---
-
-# Check if the domain argument is provided
-if [ $# -lt 1 ]; then
-    echo "Usage: $0 <domain> [subdomain]"
-    exit 1
-fi
-
-DOMAIN=$1
-
-if [ $# -eq 1 ]; then
-    # Case 1: Only domain provided - audit the 4 mandatory subdomains in order
-    SUBDOMAINS=("www" "lb-01" "web-01" "web-02")
-    
-    for SUB in "${SUBDOMAINS[@]}"; do
-        audit_subdomain "$SUB" "$DOMAIN"
-    done
-elif [ $# -eq 2 ]; then
-    # Case 2: Domain and specific subdomain provided - audit only the specified one
-    SUB=$2
-    audit_subdomain "$SUB" "$DOMAIN"
+if [ -z "$subdomain" ]; then
+    # If no subdomain specified, check all default subdomains
+    audit_subdomain "$domain" "www"
+    audit_subdomain "$domain" "lb-01"
+    audit_subdomain "$domain" "web-01"
+    audit_subdomain "$domain" "web-02"
+else
+    # If subdomain specified, check only that one
+    audit_subdomain "$domain" "$subdomain"
 fi
